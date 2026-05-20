@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0a0f1a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Route Tracker v3</title>
+<link rel="manifest" href="manifest.json">
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet">
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0a0f1a; --surface:#121824; --card:#1a2030; --accent:#f5a623; --accent2:#4fc3f7;
+  --done:#2e7d32; --done-text:#81c784; --text:#e8eaf6; --muted:#7986cb; --border:#1e2844;
+  --warn:#ff9800; --danger:#c62828; --gps:#00e676;
+}
+* { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+body { background:var(--bg); color:var(--text); font-family:'IBM Plex Mono',monospace; height:100vh; overflow:hidden; display:flex; flex-direction:column; }
+
+/* ── VIEWS ── */
+#map-view { flex:1; display:flex; flex-direction:column; position:relative; }
+#list-view { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+.view-hidden { display:none !important; }
+
+/* ── NAV TABS ── */
+.bottom-nav { display:flex; background:var(--surface); border-top:1px solid var(--border); flex-shrink:0; z-index:50; }
+.bnav-btn { flex:1; padding:10px 4px 8px; border:none; background:none; color:var(--muted); font-family:'Bebas Neue',sans-serif; font-size:14px; letter-spacing:1px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:2px; border-top:2px solid transparent; }
+.bnav-btn.active { color:var(--accent); border-top-color:var(--accent); }
+.bnav-icon { font-size:20px; line-height:1; }
+
+/* ── MAP ── */
+#map { flex:1; width:100%; }
+.mapboxgl-ctrl-bottom-right { bottom:320px !important; }
+.mapboxgl-ctrl-bottom-left { bottom:320px !important; }
+
+/* ── STOP OVERLAY (on map view) ── */
+#stop-overlay {
+  position:absolute; bottom:0; left:0; right:0;
+  background:linear-gradient(180deg, rgba(10,15,26,0.0) 0%, rgba(10,15,26,0.97) 12%);
+  padding:20px 14px 14px;
+  z-index:20; display:flex; flex-direction:column; gap:8px;
+}
+.overlay-label { font-size:9px; color:var(--accent2); letter-spacing:2px; }
+.overlay-seq { font-family:'Bebas Neue',sans-serif; font-size:48px; color:var(--accent); line-height:1; display:inline; }
+.overlay-remaining { font-family:'Bebas Neue',sans-serif; font-size:16px; color:var(--muted); margin-left:10px; }
+.overlay-addr { font-size:15px; font-weight:600; color:var(--text); line-height:1.3; }
+.overlay-note { font-size:11px; color:#ffcc02; background:rgba(255,204,2,0.1); border-left:3px solid #ffcc02; padding:4px 8px; border-radius:0 4px 4px 0; }
+.overlay-progress { height:3px; background:var(--border); border-radius:2px; overflow:hidden; }
+.overlay-progress-fill { height:100%; background:linear-gradient(90deg,var(--accent),var(--accent2)); border-radius:2px; transition:width 0.4s; }
+
+/* arrival countdown ring */
+.arrival-ring-wrap { display:flex; align-items:center; gap:10px; }
+.arrival-ring { position:relative; width:44px; height:44px; flex-shrink:0; }
+.arrival-ring svg { width:44px; height:44px; transform:rotate(-90deg); }
+.ar-bg { fill:none; stroke:var(--border); stroke-width:3; }
+.ar-fill { fill:none; stroke:var(--gps); stroke-width:3; stroke-linecap:round; stroke-dasharray:126; stroke-dashoffset:126; transition:stroke-dashoffset 0.4s; }
+.ar-pct { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-family:'Bebas Neue',sans-serif; font-size:11px; color:var(--gps); }
+.arrival-text { font-size:11px; color:var(--gps); flex:1; line-height:1.4; }
+
+/* action buttons on overlay */
+.overlay-actions { display:flex; gap:6px; }
+.ov-btn { flex:1; padding:11px 6px; border:none; border-radius:9px; font-family:'Bebas Neue',sans-serif; font-size:15px; letter-spacing:1px; cursor:pointer; }
+.ov-btn:active { opacity:0.7; }
+.ov-skip { background:var(--card); color:var(--muted); border:1px solid var(--border); }
+.ov-done { background:var(--done); color:var(--done-text); font-size:17px; }
+.ov-prev { background:var(--card); color:var(--muted); border:1px solid var(--border); }
+.ov-list { background:#1a2a3a; color:var(--accent2); border:1px solid var(--accent2); }
+
+/* GPS status pill */
+#gps-pill {
+  position:absolute; top:10px; left:10px; z-index:30;
+  background:rgba(10,15,26,0.85); border:1px solid var(--border);
+  border-radius:20px; padding:5px 12px; display:flex; align-items:center; gap:6px;
+  font-size:10px; color:var(--muted); backdrop-filter:blur(4px);
+}
+.gps-dot { width:8px; height:8px; border-radius:50%; background:#ef5350; flex-shrink:0; }
+.gps-dot.active { background:var(--gps); box-shadow:0 0 6px var(--gps); }
+.gps-dot.searching { background:var(--warn); animation:pulse 1s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;}50%{opacity:0.3;} }
+
+/* recenter button */
+#recenter-btn {
+  position:absolute; top:10px; right:10px; z-index:30;
+  background:rgba(10,15,26,0.85); border:1px solid var(--border);
+  border-radius:10px; padding:8px 12px; font-size:20px; cursor:pointer;
+  backdrop-filter:blur(4px); color:var(--accent2);
+}
+
+/* batch status pill */
+#batch-pill {
+  position:absolute; top:50px; left:10px; z-index:30;
+  background:rgba(10,15,26,0.85); border:1px solid var(--border);
+  border-radius:20px; padding:4px 12px;
+  font-family:'Bebas Neue',sans-serif; font-size:13px; color:var(--muted);
+  backdrop-filter:blur(4px);
+}
+
+/* ── LIST VIEW HEADER ── */
+.list-header { background:var(--surface); border-bottom:2px solid var(--accent); padding:10px 14px 8px; flex-shrink:0; }
+.list-header-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.route-label { font-family:'Bebas Neue',sans-serif; font-size:22px; color:var(--accent); letter-spacing:2px; line-height:1; }
+.hdr-links { display:flex; gap:5px; }
+.hdr-link { background:var(--card); border:1px solid var(--border); color:var(--accent2); border-radius:6px; padding:4px 10px; font-family:'Bebas Neue',sans-serif; font-size:13px; text-decoration:none; white-space:nowrap; }
+.hdr-link.green { background:#1b3a2a; color:#a5d6a7; border-color:#4caf50; }
+.progress-wrap { display:flex; align-items:center; gap:8px; }
+.progress-bar { flex:1; height:4px; background:var(--border); border-radius:2px; overflow:hidden; }
+.progress-fill { height:100%; background:linear-gradient(90deg,var(--accent),var(--accent2)); border-radius:2px; transition:width 0.4s; }
+.progress-text { font-size:10px; color:var(--accent); font-weight:600; white-space:nowrap; }
+
+/* search + controls */
+.list-controls { display:flex; gap:6px; padding:8px 12px; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; }
+.search-input { flex:1; background:var(--card); border:1px solid var(--border); border-radius:8px; color:var(--text); font-family:'IBM Plex Mono',monospace; font-size:13px; padding:8px 12px; outline:none; }
+.search-input:focus { border-color:var(--accent2); }
+.search-input::placeholder { color:var(--muted); }
+
+/* filter tabs */
+.tabs { display:flex; gap:5px; padding:6px 12px; background:var(--surface); border-bottom:1px solid var(--border); overflow-x:auto; flex-shrink:0; }
+.tab { background:var(--card); border:1px solid var(--border); border-radius:20px; padding:4px 12px; font-size:10px; white-space:nowrap; cursor:pointer; color:var(--muted); }
+.tab.active { background:var(--accent); color:#000; border-color:var(--accent); font-weight:600; }
+
+/* start-from + restart row */
+.list-tools { display:flex; gap:6px; padding:6px 12px; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; }
+.tool-input { flex:1; background:var(--card); border:1px solid var(--border); border-radius:8px; color:var(--text); font-family:'IBM Plex Mono',monospace; font-size:12px; padding:7px 10px; outline:none; }
+.tool-btn { padding:7px 12px; border:none; border-radius:8px; font-family:'Bebas Neue',sans-serif; font-size:13px; cursor:pointer; white-space:nowrap; }
+.tool-btn:active { opacity:0.7; }
+.tb-go { background:#2a1a3a; color:#ce93d8; border:1px solid #9c27b0; }
+.tb-restart { background:#2a0a0a; color:#ef9a9a; border:1px solid var(--danger); }
+.tb-save { background:#1b3a2a; color:#a5d6a7; border:1px solid #4caf50; }
+
+/* stop list */
+.stop-list { flex:1; overflow-y:auto; padding:8px 12px 20px; display:flex; flex-direction:column; gap:5px; }
+.stop-card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:10px 12px; transition:border-color 0.2s; }
+.stop-card.active { border-color:var(--accent2); background:#1b2a4a; box-shadow:0 0 10px rgba(79,195,247,0.2); }
+.stop-card.done { opacity:0.35; background:#141a14; border-color:#1a2a1a; }
+.stop-card.skipped { opacity:0.45; border-style:dashed; }
+.stop-card.batch-last { border-color:var(--warn); }
+.card-top { display:flex; align-items:flex-start; gap:8px; }
+.stop-seq { font-family:'Bebas Neue',sans-serif; font-size:20px; color:var(--accent); min-width:32px; text-align:right; line-height:1; }
+.stop-card.done .stop-seq { color:var(--done-text); }
+.stop-info { flex:1; min-width:0; }
+.stop-addr { font-size:12px; font-weight:600; color:var(--text); line-height:1.3; word-break:break-word; }
+.stop-note { font-size:10px; color:#ffcc02; margin-top:2px; line-height:1.3; }
+.stop-status { font-size:9px; color:var(--done-text); margin-top:2px; letter-spacing:1px; }
+.stop-badge { font-size:9px; padding:2px 6px; border-radius:10px; margin-top:3px; display:inline-block; background:rgba(255,152,0,0.2); color:var(--warn); border:1px solid var(--warn); }
+.card-actions-top { display:flex; flex-direction:column; gap:3px; }
+.icon-btn { background:none; border:none; cursor:pointer; padding:3px 5px; font-size:14px; border-radius:5px; line-height:1; color:var(--muted); }
+.icon-btn:active { background:rgba(255,255,255,0.1); }
+.card-btn-row { display:flex; gap:5px; margin-top:7px; }
+.cbt { flex:1; padding:7px 4px; border:none; border-radius:7px; font-family:'Bebas Neue',sans-serif; font-size:12px; letter-spacing:1px; cursor:pointer; }
+.cbt:active { opacity:0.65; }
+.cbt-skip { background:var(--surface); color:var(--muted); border:1px solid var(--border); }
+.cbt-done { background:var(--done); color:var(--done-text); }
+.cbt-nav { background:#1b2a4a; color:var(--accent2); border:1px solid var(--accent2); }
+.cbt-unskip { background:#1a2a3a; color:var(--accent2); border:1px solid var(--accent2); }
+.cbt-undo { background:var(--surface); color:var(--muted); border:1px solid var(--border); }
+.empty-state { text-align:center; padding:40px 20px; color:var(--muted); font-size:12px; }
+
+/* ── MODALS ── */
+.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:300; align-items:flex-end; justify-content:center; }
+.modal-overlay.open { display:flex; }
+.modal { background:var(--surface); border-radius:20px 20px 0 0; border-top:2px solid var(--accent2); padding:18px 16px 40px; width:100%; max-width:600px; display:flex; flex-direction:column; gap:12px; max-height:85vh; overflow-y:auto; }
+.modal h3 { font-family:'Bebas Neue',sans-serif; font-size:22px; color:var(--accent2); letter-spacing:1px; }
+.modal input,.modal textarea { background:var(--card); border:1px solid var(--border); border-radius:8px; color:var(--text); font-family:'IBM Plex Mono',monospace; font-size:13px; padding:9px 12px; outline:none; width:100%; }
+.modal input:focus,.modal textarea:focus { border-color:var(--accent2); }
+.modal textarea { resize:none; height:56px; }
+.modal-row { display:flex; gap:8px; }
+.modal-save { flex:2; background:var(--accent2); color:#000; border:none; border-radius:8px; padding:12px; font-family:'Bebas Neue',sans-serif; font-size:18px; cursor:pointer; }
+.modal-cancel { flex:1; background:var(--card); color:var(--muted); border:1px solid var(--border); border-radius:8px; padding:12px; font-family:'Bebas Neue',sans-serif; font-size:18px; cursor:pointer; }
+
+/* ── TOAST ── */
+#app-toast { position:fixed; bottom:70px; left:50%; transform:translateX(-50%); padding:10px 20px; border-radius:24px; font-family:'Bebas Neue',sans-serif; font-size:16px; letter-spacing:1px; opacity:0; transition:opacity 0.3s; pointer-events:none; z-index:999; white-space:nowrap; max-width:90vw; text-align:center; }
+
+/* ── ARRIVED BANNER ── */
+#arrived-banner {
+  display:none; position:absolute; top:0; left:0; right:0; z-index:40;
+  background:linear-gradient(135deg,#1b4a1b,#0d2a0d);
+  border-bottom:2px solid var(--gps);
+  padding:14px 16px; text-align:center;
+}
+#arrived-banner .arr-title { font-family:'Bebas Neue',sans-serif; font-size:28px; color:var(--gps); letter-spacing:2px; }
+#arrived-banner .arr-addr { font-size:12px; color:var(--text); margin-top:2px; }
+#arrived-banner .arr-auto { font-size:10px; color:var(--muted); margin-top:4px; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════
+     MAP VIEW
+═══════════════════════════════════════════════ -->
+<div id="map-view">
+  <div id="map"></div>
+
+  <!-- GPS pill -->
+  <div id="gps-pill">
+    <div class="gps-dot searching" id="gps-dot"></div>
+    <span id="gps-text">GPS off</span>
+  </div>
+
+  <!-- Recenter -->
+  <button id="recenter-btn" onclick="recenterMap()">&#8982;</button>
+
+  <!-- Batch pill -->
+  <div id="batch-pill">0/508</div>
+
+  <!-- Arrived banner -->
+  <div id="arrived-banner">
+    <div class="arr-title">&#10003; ARRIVED</div>
+    <div class="arr-addr" id="arr-addr"></div>
+    <div class="arr-auto" id="arr-auto">Marking done in 3...</div>
+  </div>
+
+  <!-- Stop overlay -->
+  <div id="stop-overlay">
+    <div class="overlay-progress"><div class="overlay-progress-fill" id="ov-progress"></div></div>
+    <div class="overlay-label">&#9654; CURRENT STOP</div>
+    <div>
+      <span class="overlay-seq" id="ov-seq"></span>
+      <span class="overlay-remaining" id="ov-remaining"></span>
+    </div>
+    <div class="overlay-addr" id="ov-addr">Loading route...</div>
+    <div class="overlay-note" id="ov-note" style="display:none;"></div>
+
+    <!-- Arrival proximity ring -->
+    <div class="arrival-ring-wrap" id="arrival-ring-wrap" style="display:none;">
+      <div class="arrival-ring">
+        <svg viewBox="0 0 44 44">
+          <circle class="ar-bg" cx="22" cy="22" r="20"/>
+          <circle class="ar-fill" id="ar-fill" cx="22" cy="22" r="20"/>
+        </svg>
+        <div class="ar-pct" id="ar-pct">0%</div>
+      </div>
+      <div class="arrival-text" id="arrival-text">Approaching...</div>
+    </div>
+
+    <div class="overlay-actions">
+      <button class="ov-btn ov-prev" onclick="prevStop()">&#9664;</button>
+      <button class="ov-btn ov-skip" onclick="skipCurrentStop()">SKIP</button>
+      <button class="ov-btn ov-done" onclick="markCurrentDone()">&#10003; DONE</button>
+      <button class="ov-btn ov-list" onclick="switchView('list')">&#9776; LIST</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     LIST VIEW
+═══════════════════════════════════════════════ -->
+<div id="list-view" class="view-hidden">
+  <div class="list-header">
+    <div class="list-header-top">
+      <div>
+        <div class="route-label" id="route-label">ROUTE R002</div>
+        <div style="font-size:9px;color:var(--muted);" id="route-sub">USPS &bull; V3 IN-APP NAV</div>
+      </div>
+      <div class="hdr-links">
+        <a class="hdr-link green" href="routes.html">&#128466;</a>
+        <a class="hdr-link" href="import.html">&#8597;</a>
+      </div>
+    </div>
+    <div class="progress-wrap">
+      <div class="progress-bar"><div class="progress-fill" id="lv-progress"></div></div>
+      <div class="progress-text" id="lv-progress-text">0/0</div>
+    </div>
+  </div>
+
+  <div class="list-controls">
+    <input class="search-input" type="search" placeholder="Search stop # or address..." id="search-input" oninput="renderList()">
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="setFilter('all',this)">All</div>
+    <div class="tab" onclick="setFilter('pending',this)">Pending</div>
+    <div class="tab" onclick="setFilter('done',this)">Done</div>
+    <div class="tab" onclick="setFilter('skipped',this)">Skipped</div>
+  </div>
+
+  <div class="list-tools">
+    <input class="tool-input" type="number" id="start-from-input" placeholder="Start from stop #...">
+    <button class="tool-btn tb-go" onclick="startFromStop()">&#9654; GO</button>
+    <button class="tool-btn tb-save" onclick="quickSave()">&#128190;</button>
+    <button class="tool-btn tb-restart" onclick="restartRoute()">&#8635;</button>
+  </div>
+
+  <div class="stop-list" id="stop-list"></div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     BOTTOM NAV
+═══════════════════════════════════════════════ -->
+<div class="bottom-nav">
+  <button class="bnav-btn active" id="bnav-map" onclick="switchView('map')">
+    <span class="bnav-icon">&#9654;</span>NAV
+  </button>
+  <button class="bnav-btn" id="bnav-list" onclick="switchView('list')">
+    <span class="bnav-icon">&#9776;</span>STOPS
+  </button>
+  <button class="bnav-btn" id="bnav-geo" onclick="startGeocode()">
+    <span class="bnav-icon">&#9728;</span>GEO
+  </button>
+  <button class="bnav-btn" id="bnav-gps" onclick="toggleGPS()">
+    <span class="bnav-icon" id="gps-nav-icon">&#9711;</span>GPS
+  </button>
+</div>
+
+<!-- EDIT/ADD MODAL -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <h3 id="modal-title">Add Stop</h3>
+    <input type="number" id="modal-seq" placeholder="Stop # (leave blank to append)">
+    <input type="text" id="modal-addr" placeholder="Street address *">
+    <textarea id="modal-note" placeholder="Notes (optional)"></textarea>
+    <div class="modal-row">
+      <button class="modal-cancel" onclick="closeModal()">CANCEL</button>
+      <button class="modal-save" onclick="saveStop()">SAVE</button>
+    </div>
+  </div>
+</div>
+
+<div id="app-toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════════
+mapboxgl.accessToken = 'pk.eyJ1IjoiamR1dmFsNDMiLCJhIjoiY21wZGYzc3NjMGNuMTJ4cHE2dzJqY2RsNiJ9.Hr0vOi2t7oFu9qjz9o_F1g';
+const GEO_API_KEY    = 'AIzaSyDsGLD2ycarXBg9SkZ7zE-z0mIXwWwd0OM';
+const ZIP            = 'Oakland City, IN 47660';
+const ARRIVE_THRESH  = 15.24;   // 50 ft in meters
+const HEADING_TOL    = 55;      // degrees
+const MIN_SPEED_MPS  = 1.5;     // ~3.4mph - below this ignore heading
+const MARKER_WINDOW  = 25; // visible markers centered around current stop
+const ARRIVE_DELAY   = 3000;    // ms before auto-marking done on arrival
+
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+let stops           = [];
+let currentIdx      = 0;
+let filterMode      = 'all';
+let editingId       = null;
+// No batches in v3 - full route mode
+let coordCache      = {};
+let gpsActive       = false;
+let watchId         = null;
+let currentPos      = null;   // { lat, lng, heading, speed, accuracy }
+let autoMarked      = new Set();
+let arriveTimer     = null;
+let arriveCountdown = null;
+let mapReady        = false;
+let userMovedMap    = false;
+let currentView     = 'map';
+
+// ═══════════════════════════════════════════════════════════
+// MAPBOX INIT
+// ═══════════════════════════════════════════════════════════
+const map = new mapboxgl.Map({
+  container: 'map',
+  style: 'mapbox://styles/mapbox/navigation-night-v1',
+  center: [-87.3514, 38.3388], // Oakland City IN
+  zoom: 14,
+  pitch: 45,
+  bearing: 0
+});
+
+// Markers
+let userMarker   = null;
+let targetMarker = null;
+let routeLine    = null;
+
+map.on('load', () => {
+  mapReady = true;
+
+  // Route line source
+  // Done route (grey)
+  map.addSource('route-done', { type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates:[] } } });
+  map.addLayer({ id:'route-done-line', type:'line', source:'route-done', layout:{ 'line-join':'round', 'line-cap':'round' }, paint:{ 'line-color':'#444', 'line-width':3, 'line-opacity':0.6 } });
+
+  // Pending route (orange)
+  map.addSource('route', { type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates:[] } } });
+  map.addLayer({ id:'route-line', type:'line', source:'route', layout:{ 'line-join':'round', 'line-cap':'round' }, paint:{ 'line-color':'#f5a623', 'line-width':4, 'line-opacity':0.85 } });
+
+  // Batch stops source
+  map.addSource('batch-stops', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+  map.addLayer({ id:'batch-circles', type:'circle', source:'batch-stops', paint:{
+    'circle-radius':['coalesce',['get','size'],7],
+    'circle-color':['get','color'],
+    'circle-stroke-width':2,
+    'circle-stroke-color':'#fff',
+    'circle-opacity':0.9
+  }});
+  // Stop sequence number labels
+  map.addLayer({ id:'stop-labels', type:'symbol', source:'batch-stops', layout:{
+    'text-field':['get','label'],
+    'text-size':10,
+    'text-offset':[0,-1.8],
+    'text-anchor':'bottom'
+  }, paint:{ 'text-color':'#fff', 'text-halo-color':'#000', 'text-halo-width':1 }});
+
+  loadState();
+  if (stops[currentIdx] && stops[currentIdx].status !== 'pending') advanceToNextPending();
+  renderAll();
+  drawBatchOnMap();
+});
+
+map.on('dragstart', () => { userMovedMap = true; });
+
+// ═══════════════════════════════════════════════════════════
+// VIEW SWITCHING
+// ═══════════════════════════════════════════════════════════
+function switchView(view) {
+  currentView = view;
+  document.getElementById('map-view').classList.toggle('view-hidden', view !== 'map');
+  document.getElementById('list-view').classList.toggle('view-hidden', view !== 'list');
+  document.getElementById('bnav-map').classList.toggle('active', view === 'map');
+  document.getElementById('bnav-list').classList.toggle('active', view === 'list');
+  if (view === 'map') { setTimeout(() => map.resize(), 50); recenterMap(); }
+  if (view === 'list') renderList();
+}
+
+// ═══════════════════════════════════════════════════════════
+// GEOCODING
+// ═══════════════════════════════════════════════════════════
+function loadCoordCache() {
+  try { const c = localStorage.getItem('r002_coords'); if (c) coordCache = JSON.parse(c); } catch(e) {}
+}
+function saveCoordCache() {
+  try { localStorage.setItem('r002_coords', JSON.stringify(coordCache)); } catch(e) {}
+}
+
+function geocodeStop(stop, cb) {
+  if (coordCache[stop.id]) { cb(coordCache[stop.id]); return; }
+  const addr = encodeURIComponent(stop.addr + ', ' + ZIP);
+  fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${addr}&key=${GEO_API_KEY}`)
+    .then(r => r.json())
+    .then(d => {
+      if (d.status === 'OK' && d.results[0]) {
+        const loc = d.results[0].geometry.location;
+        coordCache[stop.id] = { lat: loc.lat, lng: loc.lng };
+        saveCoordCache();
+        cb(coordCache[stop.id]);
+      } else cb(null);
+    }).catch(() => cb(null));
+}
+
+function startGeocode() {
+  const pending = stops.filter(s => !coordCache[s.id]);
+  if (!pending.length) { showToast('All stops geocoded'); computeAllBearings(); drawBatchOnMap(); return; }
+  showToast('Geocoding ' + pending.length + ' stops...');
+  document.getElementById('bnav-geo').style.color = 'var(--warn)';
+  let i = 0;
+  function next() {
+    if (i >= pending.length) {
+      computeAllBearings(); saveCoordCache(); drawBatchOnMap();
+      showToast('Geocoded ' + pending.length + ' stops');
+      document.getElementById('bnav-geo').style.color = 'var(--gps)';
+      return;
+    }
+    geocodeStop(pending[i], () => { i++; setTimeout(next, 55); });
+  }
+  next();
+}
+
+function bearingDeg(lat1, lng1, lat2, lng2) {
+  const dL = (lng2-lng1)*Math.PI/180, la1=lat1*Math.PI/180, la2=lat2*Math.PI/180;
+  const y = Math.sin(dL)*Math.cos(la2);
+  const x = Math.cos(la1)*Math.sin(la2)-Math.sin(la1)*Math.cos(la2)*Math.cos(dL);
+  return (Math.atan2(y,x)*180/Math.PI+360)%360;
+}
+
+function computeAllBearings() {
+  const ordered = stops.filter(s => coordCache[s.id]);
+  for (let i = 0; i < ordered.length; i++) {
+    const cur = coordCache[ordered[i].id]; if (!cur) continue;
+    if (i > 0) { const prev = coordCache[ordered[i-1].id]; if (prev) cur.bearing = bearingDeg(prev.lat,prev.lng,cur.lat,cur.lng); }
+  }
+  saveCoordCache();
+}
+
+// ═══════════════════════════════════════════════════════════
+// MAP DRAWING
+// ═══════════════════════════════════════════════════════════
+function drawFullRouteOnMap() {
+  if (!mapReady) return;
+  const cur = getCurrentStop();
+  const pending = getPendingStops();
+
+  // Full route line through ALL stops with coords (done=grey, pending=orange)
+  const doneCoords    = [];
+  const pendingCoords = [];
+  let   lastDone      = null;
+
+  stops.forEach(s => {
+    const c = coordCache[s.id];
+    if (!c) return;
+    if (s.status === 'done') { doneCoords.push([c.lng, c.lat]); lastDone = [c.lng, c.lat]; }
+    else pendingCoords.push([c.lng, c.lat]);
+  });
+
+  // Update route line sources
+  if (map.getSource('route')) {
+    map.getSource('route').setData({
+      type:'Feature', geometry:{ type:'LineString', coordinates: pendingCoords.length > 1 ? pendingCoords : [] }
+    });
+  }
+  if (map.getSource('route-done')) {
+    map.getSource('route-done').setData({
+      type:'Feature', geometry:{ type:'LineString', coordinates: doneCoords.length > 1 ? doneCoords : [] }
+    });
+  }
+
+  // Sliding window of markers: MARKER_WINDOW stops centered on current
+  const curPendIdx = pending.findIndex(s => cur && s.id === cur.id);
+  const winStart   = Math.max(0, curPendIdx - 5);
+  const winEnd     = Math.min(pending.length, winStart + MARKER_WINDOW);
+  const window     = pending.slice(winStart, winEnd);
+
+  const features = window.map((s, wi) => {
+    const coord = coordCache[s.id];
+    if (!coord) return null;
+    const isCur = cur && s.id === cur.id;
+    const color = isCur ? '#4fc3f7' : '#f5a623';
+    const size  = isCur ? 12 : 7;
+    return {
+      type:'Feature',
+      geometry:{ type:'Point', coordinates:[coord.lng, coord.lat] },
+      properties:{ color, size, seq: s.seq, label: String(s.seq) }
+    };
+  }).filter(Boolean);
+
+  if (map.getSource('batch-stops')) {
+    map.getSource('batch-stops').setData({ type:'FeatureCollection', features });
+  }
+
+  // Current stop pin marker
+  if (targetMarker) targetMarker.remove();
+  if (cur && coordCache[cur.id]) {
+    const coord = coordCache[cur.id];
+    const el = document.createElement('div');
+    el.style.cssText = 'width:32px;height:32px;background:#f5a623;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.5);';
+    targetMarker = new mapboxgl.Marker({ element: el, anchor:'bottom-left' })
+      .setLngLat([coord.lng, coord.lat])
+      .addTo(map);
+  }
+
+  // Update progress pill
+  const done = stops.filter(s=>s.status==='done').length;
+  document.getElementById('batch-pill').textContent =
+    done + '/' + stops.length + ' — #' + (cur ? cur.seq : '?') + ' of ' + stops.length;
+}
+
+// Alias for compatibility
+const drawBatchOnMap = drawFullRouteOnMap;
+
+function updateUserMarker(lat, lng, heading) {
+  if (!mapReady) return;
+  if (!userMarker) {
+    const el = document.createElement('div');
+    el.id = 'user-dot';
+    el.style.cssText = 'width:20px;height:20px;background:#00e676;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px #00e676;';
+    userMarker = new mapboxgl.Marker({ element: el, anchor:'center' }).setLngLat([lng, lat]).addTo(map);
+  } else {
+    userMarker.setLngLat([lng, lat]);
+  }
+  // Rotate map to heading
+  if (heading !== null && !userMovedMap) {
+    map.easeTo({ bearing: heading, pitch: 45, duration: 300 });
+  }
+}
+
+function recenterMap() {
+  userMovedMap = false;
+  if (currentPos) {
+    map.easeTo({ center:[currentPos.lng, currentPos.lat], zoom:16, bearing: currentPos.heading || 0, pitch:45, duration:600 });
+  } else {
+    const cur = getCurrentStop();
+    if (cur && coordCache[cur.id]) {
+      const c = coordCache[cur.id];
+      map.flyTo({ center:[c.lng, c.lat], zoom:15, pitch:45, duration:800 });
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// GPS ENGINE
+// ═══════════════════════════════════════════════════════════
+function toggleGPS() {
+  if (gpsActive) stopGPS(); else startGPS();
+}
+
+function startGPS() {
+  if (!navigator.geolocation) { showToast('GPS not supported', true); return; }
+  gpsActive = true;
+  document.getElementById('bnav-gps').classList.add('active');
+  document.getElementById('gps-nav-icon').textContent = '◉';
+  setGpsDot('searching');
+  document.getElementById('gps-text').textContent = 'Acquiring...';
+  watchId = navigator.geolocation.watchPosition(onGpsUpdate, onGpsError,
+    { enableHighAccuracy:true, maximumAge:2000, timeout:10000 });
+}
+
+function stopGPS() {
+  gpsActive = false;
+  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  document.getElementById('bnav-gps').classList.remove('active');
+  document.getElementById('gps-nav-icon').textContent = '○';
+  setGpsDot('off');
+  document.getElementById('gps-text').textContent = 'GPS off';
+}
+
+function setGpsDot(state) {
+  const d = document.getElementById('gps-dot');
+  d.className = 'gps-dot' + (state==='active'?' active':state==='searching'?' searching':'');
+}
+
+function onGpsUpdate(pos) {
+  const { latitude:lat, longitude:lng, heading, speed, accuracy } = pos.coords;
+  currentPos = { lat, lng, heading, speed: speed||0, accuracy };
+  setGpsDot('active');
+  document.getElementById('gps-text').textContent = '\u00b1' + Math.round(accuracy) + 'm';
+  updateUserMarker(lat, lng, heading);
+  if (!userMovedMap) recenterMap();
+  checkProximity(lat, lng, heading, speed||0);
+}
+
+function onGpsError(err) {
+  setGpsDot('searching');
+  document.getElementById('gps-text').textContent = err.message.substring(0,20);
+}
+
+// ═══════════════════════════════════════════════════════════
+// PROXIMITY & AUTO-MARK
+// ═══════════════════════════════════════════════════════════
+function haversineM(lat1,lng1,lat2,lng2) {
+  const R=6371000, dLat=(lat2-lat1)*Math.PI/180, dLng=(lng2-lng1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+function headingOk(actual, expected) {
+  if (actual===null || actual===undefined) return true;
+  if (expected===undefined) return true;
+  return Math.abs(((actual-expected)+540)%360-180) <= HEADING_TOL;
+}
+
+function checkProximity(lat, lng, heading, speed) {
+  const cur = getCurrentStop();
+  if (!cur) return;
+  const coord = coordCache[cur.id];
+  if (!coord) return;
+
+  const dist = haversineM(lat, lng, coord.lat, coord.lng);
+  const distFt = Math.round(dist * 3.28084);
+  const pct = Math.min(100, Math.round((1 - dist/(ARRIVE_THRESH*8))*100));
+
+  // Update arrival ring
+  const ringWrap = document.getElementById('arrival-ring-wrap');
+  if (dist < ARRIVE_THRESH * 8) {
+    ringWrap.style.display = 'flex';
+    const circ = 126;
+    document.getElementById('ar-fill').style.strokeDashoffset = circ - (circ * Math.max(0,pct) / 100);
+    document.getElementById('ar-pct').textContent = distFt + '\'';
+    document.getElementById('arrival-text').textContent = distFt + 'ft from #' + cur.seq;
+  } else {
+    ringWrap.style.display = 'none';
+  }
+
+  // Update batch pill
+  const batch = getCurrentBatch();
+  const pending = batch.filter(s => s.status==='pending').length;
+  document.getElementById('batch-pill').textContent = 'BATCH ' + (currentBatchIdx+1) + ' \u2014 ' + pending + ' left';
+
+  // Heading check: only enforce when moving above minimum speed
+  const useHeading = speed >= MIN_SPEED_MPS;
+  const hOk = !useHeading || headingOk(heading, coord.bearing);
+
+  if (dist <= ARRIVE_THRESH && hOk && !autoMarked.has(cur.id)) {
+    triggerArrival(cur);
+  }
+
+  // Also scan next 4 pending stops in case GPS jumped ahead
+  const pending2 = getPendingStops();
+  const curPIdx  = pending2.findIndex(s => s.id === cur.id);
+  const lookahead = pending2.slice(curPIdx + 1, curPIdx + 5);
+  for (const ns of lookahead) {
+    const nc = coordCache[ns.id]; if (!nc) continue;
+    const nd = haversineM(lat, lng, nc.lat, nc.lng);
+    const nh = !useHeading || headingOk(heading, nc.bearing);
+    if (nd <= ARRIVE_THRESH && nh && !autoMarked.has(ns.id)) {
+      // Close to a future stop too - mark current done immediately then trigger next
+      if (!autoMarked.has(cur.id)) { autoMarked.add(cur.id); cur.status='done'; advanceToNextPending(); saveState(); }
+      triggerArrival(ns);
+      break;
+    }
+  }
+}
+
+function triggerArrival(stop) {
+  if (autoMarked.has(stop.id)) return;
+  autoMarked.add(stop.id);
+
+  // Show arrived banner
+  document.getElementById('arr-addr').textContent = '#' + stop.seq + ' \u2014 ' + stop.addr;
+  document.getElementById('arrived-banner').style.display = 'block';
+
+  let secs = 3;
+  document.getElementById('arr-auto').textContent = 'Marking done in ' + secs + '...';
+  arriveCountdown = setInterval(() => {
+    secs--;
+    if (secs > 0) {
+      document.getElementById('arr-auto').textContent = 'Marking done in ' + secs + '...';
+    } else {
+      clearInterval(arriveCountdown);
+      arriveCountdown = null;
+      document.getElementById('arrived-banner').style.display = 'none';
+      performMarkDone(stop);
+    }
+  }, 1000);
+}
+
+function cancelArrival() {
+  if (arriveCountdown) { clearInterval(arriveCountdown); arriveCountdown = null; }
+  document.getElementById('arrived-banner').style.display = 'none';
+}
+
+function performMarkDone(stop) {
+  stop.status = 'done';
+  if (stops[currentIdx] && stops[currentIdx].id === stop.id) advanceToNextPending();
+  // Check batch advance
+  const batch = getCurrentBatch();
+  const allDone = batch.every(s => s.status !== 'pending');
+  if (allDone && !batchFired) {
+    batchFired = true;
+    const next = getBatch(currentBatchIdx + 1);
+    if (next.length) {
+      currentBatchIdx++;
+      batchFired = false;
+      saveBatchState();
+      showToast('Batch complete \u2014 batch ' + (currentBatchIdx+1) + ' loaded');
+    } else {
+      showToast('Route complete!');
+    }
+  }
+  saveState();
+  renderAll();
+  drawBatchOnMap();
+  recenterMap();
+}
+
+// ═══════════════════════════════════════════════════════════
+// STOP MANAGEMENT
+// ═══════════════════════════════════════════════════════════
+function getPendingStops() { return stops.filter(s => s.status==='pending'); }
+function getCurrentStop()  { return stops[currentIdx] || null; }
+
+// Full route mode - no batch helpers needed
+function advanceToNextPending() {
+  for (let i=currentIdx+1; i<stops.length; i++) { if(stops[i].status==='pending'){currentIdx=i;return;} }
+  for (let i=0; i<currentIdx; i++) { if(stops[i].status==='pending'){currentIdx=i;return;} }
+}
+
+function markCurrentDone() {
+  cancelArrival();
+  const cur = getCurrentStop(); if (!cur) return;
+  performMarkDone(cur);
+}
+function skipCurrentStop() {
+  cancelArrival();
+  const cur = getCurrentStop(); if (!cur) return;
+  cur.status = 'skipped';
+  advanceToNextPending();
+  saveState(); renderAll(); drawBatchOnMap();
+}
+function prevStop() {
+  cancelArrival();
+  for (let i=currentIdx-1; i>=0; i--) { if(stops[i].status!=='done'){currentIdx=i;break;} }
+  saveState(); renderAll(); drawBatchOnMap(); recenterMap();
+}
+function jumpTo(id) {
+  cancelArrival();
+  const i = stops.findIndex(s=>s.id===id);
+  if(i!==-1){currentIdx=i; saveState(); renderAll(); drawBatchOnMap(); switchView('map'); recenterMap();}
+}
+function markStopDone(id) {
+  const s=stops.find(x=>x.id===id); if(!s) return;
+  s.status='done';
+  if(stops[currentIdx]&&stops[currentIdx].id===id) advanceToNextPending();
+  saveState(); renderAll(); drawBatchOnMap();
+}
+function markStopSkipped(id) {
+  const s=stops.find(x=>x.id===id); if(!s) return;
+  s.status='skipped';
+  if(stops[currentIdx]&&stops[currentIdx].id===id) advanceToNextPending();
+  saveState(); renderAll();
+}
+function markStopPending(id) {
+  const s=stops.find(x=>x.id===id); if(!s) return;
+  s.status='pending'; saveState(); renderAll();
+}
+
+// ═══════════════════════════════════════════════════════════
+// START FROM / RESTART
+// ═══════════════════════════════════════════════════════════
+function startFromStop() {
+  const val = parseInt(document.getElementById('start-from-input').value);
+  if (!val||isNaN(val)) { showToast('Enter a stop number', true); return; }
+  const tIdx = stops.findIndex(s=>s.seq===val);
+  if (tIdx===-1) { showToast('Stop #'+val+' not found', true); return; }
+  let skipped = 0;
+  for (let i=0; i<tIdx; i++) { if(stops[i].status==='pending'){stops[i].status='skipped';skipped++;} }
+  currentIdx = tIdx;
+  // Full route mode - no batch index needed
+  document.getElementById('start-from-input').value='';
+  showToast('Starting from #'+val+' \u2014 '+skipped+' skipped');
+  saveState(); renderAll(); drawBatchOnMap(); switchView('map');
+}
+
+function restartRoute() {
+  if (!confirm('Restart? All stops reset to pending.')) return;
+  stops.forEach(s=>s.status='pending');
+  currentIdx=0;
+  autoMarked.clear(); cancelArrival();
+  saveState();
+  showToast('Route restarted');
+  renderAll(); drawBatchOnMap();
+}
+
+// ═══════════════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════════════
+function renderOverlay() {
+  const cur = getCurrentStop();
+  const pending = getPendingStops();
+  const done = stops.filter(s=>s.status==='done').length;
+  const total = stops.length;
+
+  document.getElementById('ov-progress').style.width = (done/total*100)+'%';
+
+  if (!cur || !pending.length) {
+    document.getElementById('ov-seq').textContent = '';
+    document.getElementById('ov-addr').textContent = done===total ? 'ROUTE COMPLETE!' : 'No pending stops';
+    document.getElementById('ov-note').style.display='none';
+    document.getElementById('ov-remaining').textContent='';
+    return;
+  }
+  document.getElementById('ov-seq').textContent = '#'+cur.seq;
+  document.getElementById('ov-remaining').textContent = pending.length+' left';
+  document.getElementById('ov-addr').textContent = cur.addr;
+  const noteEl = document.getElementById('ov-note');
+  if (cur.note) { noteEl.textContent=cur.note; noteEl.style.display='block'; }
+  else noteEl.style.display='none';
+}
+
+function renderHeader() {
+  const done = stops.filter(s=>s.status==='done').length;
+  const total = stops.length;
+  document.getElementById('lv-progress').style.width=(done/total*100)+'%';
+  document.getElementById('lv-progress-text').textContent=done+'/'+total;
+}
+
+function renderList() {
+  const search = document.getElementById('search-input')?.value.toLowerCase().trim()||'';
+  const list = document.getElementById('stop-list');
+  const cur = getCurrentStop();
+  const batchLast = null; // Full route mode - no batch end marker
+
+  let filtered = stops.filter(s => {
+    if (filterMode==='pending' && s.status!=='pending') return false;
+    if (filterMode==='done' && s.status!=='done') return false;
+    if (filterMode==='skipped' && s.status!=='skipped') return false;
+    if (search) return s.addr.toLowerCase().includes(search)||String(s.seq).includes(search)||(s.note&&s.note.toLowerCase().includes(search));
+    return true;
+  });
+
+  if (!filtered.length) { list.innerHTML='<div class="empty-state">No stops match</div>'; return; }
+
+  list.innerHTML = filtered.map(s => {
+    const isActive  = cur && s.id===cur.id;
+    const isDone    = s.status==='done';
+    const isSkipped = s.status==='skipped';
+    const isBatchEnd = batchLast && s.id===batchLast.id && !isDone;
+    let cls = 'stop-card';
+    if (isActive) cls+=' active';
+    else if (isDone) cls+=' done';
+    else if (isSkipped) cls+=' skipped';
+    if (isBatchEnd) cls+=' batch-last';
+
+    const statusTag = isDone
+      ? '<div class="stop-status">\u2713 DELIVERED</div>'
+      : isSkipped ? '<div class="stop-status" style="color:#ef9a9a;">\u21bb SKIPPED</div>' : '';
+    const batchBadge = isBatchEnd ? '<div class="stop-badge">BATCH END</div>' : '';
+
+    let btns;
+    if (isDone) {
+      btns=`<div class="card-btn-row">
+        <button class="cbt cbt-undo" onclick="markStopPending(${s.id})">UNDO</button>
+        <button class="cbt cbt-nav" onclick="jumpTo(${s.id})">&#9654; GO</button>
+      </div>`;
+    } else if (isSkipped) {
+      btns=`<div class="card-btn-row">
+        <button class="cbt cbt-done" onclick="markStopDone(${s.id})">\u2713 DONE</button>
+        <button class="cbt cbt-unskip" onclick="markStopPending(${s.id})">\u8635 UNSKIP</button>
+        <button class="cbt cbt-nav" onclick="jumpTo(${s.id})">&#9654; GO</button>
+      </div>`;
+    } else {
+      btns=`<div class="card-btn-row">
+        <button class="cbt cbt-skip" onclick="markStopSkipped(${s.id})">SKIP</button>
+        <button class="cbt cbt-done" onclick="markStopDone(${s.id})">\u2713 DONE</button>
+        <button class="cbt cbt-nav" onclick="jumpTo(${s.id})">&#9654; GO</button>
+      </div>`;
+    }
+
+    return `<div class="${cls}" id="card-${s.id}">
+      <div class="card-top">
+        <div class="stop-seq">${s.seq}</div>
+        <div class="stop-info" style="flex:1;" onclick="jumpTo(${s.id})">
+          <div class="stop-addr">${s.addr}</div>
+          ${s.note?`<div class="stop-note">\u25b6 ${s.note}</div>`:''}
+          ${statusTag}${batchBadge}
+        </div>
+        <div class="card-actions-top">
+          <button class="icon-btn" onclick="editStop(${s.id})">&#9998;</button>
+          <button class="icon-btn" onclick="moveStop(${s.id},-1)">&#9650;</button>
+          <button class="icon-btn" onclick="moveStop(${s.id},1)">&#9660;</button>
+          <button class="icon-btn" style="color:#ef9a9a;" onclick="deleteStop(${s.id})">&#10005;</button>
+        </div>
+      </div>
+      ${btns}
+    </div>`;
+  }).join('');
+}
+
+function renderAll() { renderOverlay(); renderHeader(); if(currentView==='list') renderList(); }
+
+function setFilter(mode, el) {
+  filterMode = mode;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  renderList();
+}
+
+// ═══════════════════════════════════════════════════════════
+// STOP CRUD
+// ═══════════════════════════════════════════════════════════
+function moveStop(id, dir) {
+  const i=stops.findIndex(s=>s.id===id), ni=i+dir;
+  if(ni<0||ni>=stops.length) return;
+  [stops[i],stops[ni]]=[stops[ni],stops[i]];
+  if(currentIdx===i) currentIdx=ni; else if(currentIdx===ni) currentIdx=i;
+  saveState(); renderAll(); drawBatchOnMap();
+}
+function deleteStop(id) {
+  if(!confirm('Remove stop #'+stops.find(s=>s.id===id)?.seq+'?')) return;
+  const i=stops.findIndex(s=>s.id===id); stops.splice(i,1);
+  if(currentIdx>=stops.length) currentIdx=Math.max(0,stops.length-1);
+  saveState(); renderAll(); drawBatchOnMap();
+}
+function editStop(id) {
+  const s=stops.find(x=>x.id===id); if(!s) return;
+  editingId=id;
+  document.getElementById('modal-title').textContent='Edit Stop #'+s.seq;
+  document.getElementById('modal-seq').value=s.seq;
+  document.getElementById('modal-addr').value=s.addr;
+  document.getElementById('modal-note').value=s.note||'';
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function openModal() {
+  editingId=null;
+  document.getElementById('modal-title').textContent='Add Stop';
+  document.getElementById('modal-seq').value='';
+  document.getElementById('modal-addr').value='';
+  document.getElementById('modal-note').value='';
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function closeModal() { document.getElementById('modal-overlay').classList.remove('open'); editingId=null; }
+function saveStop() {
+  const addr=document.getElementById('modal-addr').value.trim();
+  if(!addr){alert('Address required');return;}
+  const note=document.getElementById('modal-note').value.trim();
+  const seqVal=parseInt(document.getElementById('modal-seq').value)||null;
+  if(editingId!==null){
+    const s=stops.find(x=>x.id===editingId);
+    if(s){s.addr=addr;s.note=note;if(seqVal)s.seq=seqVal;}
+  } else {
+    const newId=Date.now(), newSeq=seqVal||(Math.max(...stops.map(s=>s.seq))+1);
+    const ns={id:newId,seq:newSeq,addr,note,status:'pending'};
+    if(seqVal){const ai=stops.findLastIndex(s=>s.seq<=seqVal);stops.splice(ai+1,0,ns);}
+    else stops.push(ns);
+  }
+  closeModal(); saveState(); renderAll(); drawBatchOnMap();
+}
+
+// ═══════════════════════════════════════════════════════════
+// PERSISTENCE
+// ═══════════════════════════════════════════════════════════
+function saveState() {
+  try {
+    localStorage.setItem('r002_stops', JSON.stringify(stops));
+    localStorage.setItem('r002_idx', currentIdx);
+  } catch(e) {}
+}
+function loadState() {
+  try {
+    const s=localStorage.getItem('r002_stops');
+    const i=localStorage.getItem('r002_idx');
+    if(s) stops=JSON.parse(s); else initDefaultStops();
+    if(i!==null) currentIdx=parseInt(i);
+    const lbl=localStorage.getItem('r002_label');
+    const sub=localStorage.getItem('r002_sub');
+    if(lbl) document.getElementById('route-label').textContent=lbl;
+    if(sub) document.getElementById('route-sub').textContent=sub;
+  } catch(e) { initDefaultStops(); }
+  loadCoordCache();
+}
+
+// ═══════════════════════════════════════════════════════════
+// QUICK SAVE
+// ═══════════════════════════════════════════════════════════
+function quickSave() {
+  const label=localStorage.getItem('r002_label')||'ROUTE R002';
+  const today=new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  const name=label+' - '+today;
+  const idx_key='r002_route_index', prefix='r002_route_';
+  let existingId=null;
+  try {
+    const arr=JSON.parse(localStorage.getItem(idx_key)||'[]');
+    for(const id of arr){const r=JSON.parse(localStorage.getItem(prefix+id)||'null');if(r&&r.name.toLowerCase()===name.toLowerCase()){existingId=id;break;}}
+  } catch(e) {}
+  const id=existingId||(Date.now().toString(36)+Math.random().toString(36).slice(2,5));
+  const done=stops.filter(s=>s.status==='done').length;
+  const data={id,name,label,sub:'',zip:ZIP,stops,curIdx:currentIdx,savedAt:Date.now(),done,total:stops.length};
+  try {
+    localStorage.setItem(prefix+id,JSON.stringify(data));
+    if(!existingId){const arr=JSON.parse(localStorage.getItem(idx_key)||'[]');arr.push(id);localStorage.setItem(idx_key,JSON.stringify(arr));}
+    showToast('Saved: '+name);
+  } catch(e){showToast('Save failed',true);}
+}
+
+// ═══════════════════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════════════════
+let _tt;
+function showToast(msg, err=false) {
+  const t=document.getElementById('app-toast');
+  t.textContent=msg; t.style.background=err?'#b71c1c':'#2e7d32';
+  t.style.color=err?'#ffcdd2':'#81c784'; t.style.opacity='1';
+  clearTimeout(_tt); _tt=setTimeout(()=>t.style.opacity='0',2500);
+}
+
+// ═══════════════════════════════════════════════════════════
+// MISC
+// ═══════════════════════════════════════════════════════════
+document.getElementById('modal-overlay').addEventListener('click',function(e){if(e.target===this)closeModal();});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){loadState();renderAll();drawBatchOnMap();}});
+window.addEventListener('pageshow',e=>{if(e.persisted){loadState();renderAll();drawBatchOnMap();}});
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+
+// ═══════════════════════════════════════════════════════════
+// DEFAULT STOPS
+// ═══════════════════════════════════════════════════════════
+function initDefaultStops() {
+  const R=[[1,"1292 Freedonia St","inactive"],[2,"12275 E Harrison St","box full - lift flag"],[3,"444 E Harrison St","house on left, packages left side"],[4,"12286 E Harrison St",""],[5,"12289 E Harrison St",""],[6,"12298 E Harrison St",""],[7,"13261 E Harrison St",""],[8,"13283 E Harrison St",""],[9,"13278 E Harrison St",""],[10,"13290 E Harrison St",""],[11,"13308 E Harrison St",""],[12,"13318 E Harrison St",""],[13,"13329 E Harrison St",""],[14,"13361 E Harrison St",""],[15,"13415 E Harrison St",""],[16,"13388 E Harrison St",""],[17,"13320 E Harrison St",""],[18,"12388 E State Road 64","business"],[19,"11304 E State Road 64","church"],[20,"11267 E State Road 64",""],[21,"619 E Morton St",""],[22,"209 S East St",""],[23,"210 S East St",""],[24,"604 E Morton St","diner - go in"],[25,"523 E Morton St",""],[26,"518 E Morton St",""],[27,"416 E Morton St","insurance - box in back"],[28,"430 E Morton St",""],[29,"701 E Jackson St",""],[30,"1698 S 1200 E",""],[31,"1738 S 1200 E",""],[32,"1742 S 1200 E",""],[33,"1756 S 1200 E",""],[34,"1776 S 1200 E",""],[35,"1799 S 1200 E",""],[36,"1812 S 1200 E",""],[37,"1827 S 1200 E",""],[38,"1855 S 1200 E",""],[39,"12033 E Hickory Ln",""],[40,"12063 E Hickory Ln",""],[41,"12093 E Hickory Ln",""],[42,"12123 E Hickory Ln",""],[43,"12135 E Hickory Ln",""],[44,"12128 E Hickory Ln",""],[45,"12124 E Hickory Ln",""],[46,"12102 E Hickory Ln",""],[47,"12082 E Hickory Ln",""],[48,"12040 E Hickory Ln",""],[49,"1840 S 1200 E",""],[50,"1858 S 1200 E",""],[51,"1873 S 1200 E",""],[52,"1875 S 1200 E",""],[53,"1893 S 1200 E",""],[54,"1913 S 1200 E",""],[55,"1937 S 1200 E","Peggy - sweet older lady"],[56,"1947 S 1200 E",""],[57,"1961 S 1200 E","vacant"],[58,"1981 S 1200 E",""],[59,"11898 E 200 S",""],[60,"1944 S 1190 E",""],[61,"1862 S 1190 E",""],[62,"1777 S 1190 E","circle around"],[63,"1825 S 1190 E",""],[64,"1822 S 1190 E",""],[65,"1849 S 1190 E",""],[66,"1857 S 1190 E",""],[67,"12021 E 200 S","on 1200 E"],[68,"2044 S 1200 E",""],[69,"2069 S 1200 E",""],[70,"2082 S 1200 E",""],[71,"2079 S 1200 E",""],[72,"2130 S 1200 E",""],[73,"2175 S 1200 E",""],[74,"2164 S 1200 E",""],[75,"2182 S 1200 E",""],[76,"2219 S 1200 E",""],[77,"2240 S 1200 E",""],[78,"2262 S 1200 E",""],[79,"2272 S 1200 E",""],[80,"2494 S 1200 E",""],[81,"2492 S 1200 E",""],[82,"12248 E 275 S","only 1 - drive around house if possible"],[83,"900 W Private Rd 925 S",""],[84,"1112 W Private Rd 925 S",""],[85,"1600 W Private Rd 925 S","box in driveway - have to back out"],[86,"2000 W Private Rd 925 S",""],[87,"1891 W County Road 900 S",""],[88,"9214 S Private Rd 150 W","house on right down path"],[89,"9221 S Private Rd 150 W","straight then left"],[90,"1831 W County Road 900 S","down path right"],[91,"1625 W County Road 900 S",""],[92,"1564 W County Road 900 S",""],[93,"1159 W County Road 900 S",""],[94,"450 W County Road 900 S","gravel drive - house on left"],[95,"541 W County Road 900 S","packages for both in bin"],[96,"567 W Private Rd 925 S",""],[97,"339 W County Road 900 S","brick box"],[98,"222 W County Road 900 S",""],[99,"96 W County Road 900 S",""],[100,"17 W County Road 900 S",""],[101,"46 E County Road 900 S",""],[102,"86 E County Road 900 S",""],[103,"160 E County Road 900 S",""],[104,"8091 S Meridian Rd",""],[105,"5477 S Meridian Rd",""],[106,"8093 S Meridian Rd",""],[107,"430 W County Road 775 S",""],[108,"220 E County Road 900 S",""],[109,"471 E County Road 900 S",""],[110,"476 E County Road 900 S",""],[111,"477 E County Road 900 S","dog - honk"],[112,"540 E County Road 900 S",""],[113,"985 E County Road 900 S",""],[114,"9008 S State Road 61",""],[115,"9042 S State Road 61",""],[116,"9055 S State Road 61",""],[117,"9061 S State Road 61",""],[118,"9081 S State Road 61",""],[119,"9167 S State Road 61",""],[120,"9171 S State Road 61",""],[121,"9194 S State Road 61",""],[122,"9207 S State Road 61",""],[123,"9326 S State Road 61",""],[124,"9364 S State Road 61",""],[125,"9367 S State Road 61",""],[126,"10072 S State Road 61",""],[127,"10704 S State Road 61",""],[128,"10806 S State Road 61",""],[129,"10840 S State Road 61",""],[130,"11021 S State Road 61","green building in lot is outhouse"],[131,"11092 S State Road 61",""],[132,"11094 S State Road 61",""],[133,"11118 S State Road 61","regular package pickups"],[134,"11126 S State Road 61",""],[135,"11148 S State Road 61",""],[136,"11172 S State Road 61",""],[137,"11175 Dougan St",""],[138,"11165 Dougan St",""],[139,"11155 Dougan St",""],[140,"11135 Dougan St",""],[141,"11125 Dougan St",""],[142,"11095 Dougan St",""],[143,"11021 Dougan St",""],[144,"1147 School St",""],[145,"1133 School St",""],[146,"1103 School St",""],[147,"11071 S State Road 61",""],[148,"11069 S State Road 61",""],[149,"1076 E County Road 1100 S",""],[150,"1190 E County Road 1100 S",""],[151,"1242 E County Road 1100 S",""],[152,"11060 Public Rd",""],[153,"11142 Public Rd",""],[154,"11182 Public Rd",""],[155,"970 E County Road 1150 S","RT between empty lot and fence"],[156,"924 E County Road 1150 S","turn around"],[157,"1098 N Main Dr",""],[158,"11606 S State Road 61",""],[159,"12227 S Meridian Rd",""],[160,"12439 S Meridian Rd",""],[161,"3299 Schmidt Rd","long stretch"],[162,"1090 W County Road 1200 S",""],[163,"3077 Schmidt Rd","leave packages by box if weather nice"],[164,"14455 German Church Rd","watch for daycare kids"],[165,"12543 S County Road 100 W","pass many boxes on way"],[166,"11425 S State Road 61",""],[167,"11209 S State Road 61","red/grey house"],[168,"10703 S State Road 61","back red door house"],[169,"10701 S State Road 61",""],[170,"10599 S State Road 61",""],[171,"10581 S State Road 61",""],[172,"10503 S State Road 61",""],[173,"10445 S State Road 61",""],[174,"10359 S State Road 61",""],[175,"10305 S State Road 61","Tami - deliver to door - on oxygen"],[176,"10267 S State Road 61",""],[177,"10411 Long Lake Trl",""],[178,"10413 Long Lake Trl",""],[179,"10414 Long Lake Trl",""],[180,"10264 S State Road 61",""],[181,"10717 S Long Lake Rd",""],[182,"10211 S State Road 61",""],[183,"10073 S State Road 61",""],[184,"9559 S State Road 61",""],[185,"9533 S State Road 61",""],[186,"9261 S State Road 61",""],[187,"1012 E County Road 900 S",""],[188,"1030 E County Road 900 S",""],[189,"1048 E County Road 900 S",""],[190,"1058 E County Road 900 S",""],[191,"1068 E County Road 900 S",""],[192,"1078 E County Road 900 S",""],[193,"1106 E County Road 900 S","house on left"],[194,"1201 E County Road 900 S","house box on right"],[195,"1216 E County Road 900 S","turn around"],[196,"9445 S Johnson Ln",""],[197,"9485 S Johnson Ln",""],[198,"2444 E County Road 950 S",""],[199,"2825 E County Road 950 S",""],[200,"9416 S County Road 300 E",""],[201,"9019 S County Road 300 E",""],[202,"8758 S County Road 300 E",""],[203,"8643 S County Road 300 E",""],[204,"8377 S County Road 300 E",""],[205,"8356 S County Road 300 E",""],[206,"8277 S County Road 300 E","lots of outgoing mail"],[207,"8228 S County Road 300 E",""],[208,"3153 S County Road 800 S","dog - only house down road"],[209,"7998 S County Road 300 E",""],[210,"2641 E County Road 800 S",""],[211,"2594 E County Road 800 S",""],[212,"2540 E County Road 800 S",""],[213,"2521 E County Road 800 S",""],[214,"2495 E County Road 800 S",""],[215,"2454 E County Road 800 S",""],[216,"2431 E County Road 800 S",""],[217,"2324 E County Road 800 S",""],[218,"2316 E County Road 800 S",""],[219,"2194 E County Road 800 S",""],[220,"8088 S County Road 200 E",""],[221,"8114 S County Road 150 E","turn around"],[222,"1376 E County Road 825 S",""],[223,"1578 E County Road 825 S",""],[224,"1872 E County Road 825 S","box in driveway"],[225,"2005 E County Road 800 S",""],[226,"1948 E County Road 800 S",""],[227,"1224 E County Road 800 S",""],[228,"788 E County Road 800 S",""],[229,"676 E County Road 775 S",""],[230,"587 E County Road 775 S",""],[231,"480 W County Road 775 S","turn around in driveway"],[232,"297 W County Road 775 S",""],[233,"7858 S Meridian Rd",""],[234,"7550 S Meridian Rd","blue everything"],[235,"163 W County Road 775 S","backtrack"],[236,"612 E County Road 775 S",""],[237,"8152 S State Road 61",""],[238,"8304 S State Road 61",""],[239,"8317 S State Road 61","turn around in driveway"],[240,"7915 S State Road 61",""],[241,"7933 S State Road 61",""],[242,"7912 S State Road 61",""],[243,"7891 S State Road 61",""],[244,"7877 S State Road 61",""],[245,"7870 S State Road 61",""],[246,"7841 S State Road 61",""],[247,"7840 S State Road 61",""],[248,"7821 S State Road 61","right side - right drive"],[249,"7814 S State Road 61",""],[250,"7735 S State Road 61",""],[251,"949 E County Road 650 S",""],[252,"885 E County Road 650 S","back in - turn around"],[253,"7252 S County Road 100 E",""],[254,"7237 S County Road 100 E",""],[255,"7227 S County Road 100 E",""],[256,"7226 S County Road 100 E",""],[257,"7123 S County Road 100 E",""],[258,"7080 S County Road 100 E",""],[259,"907 E County Road 700 S",""],[260,"892 E County Road 700 S",""],[261,"801 E County Road 700 S",""],[262,"626 E County Road 700 S",""],[263,"7038 S County Road 50 E",""],[264,"7091 S County Road 50 E",""],[265,"6792 S County Road 50 E",""],[266,"6998 S Meridian Rd",""],[267,"14 E County Road 675 S",""],[268,"6614 S Meridian Rd","bitey dog"],[269,"6574 S Meridian Rd","dog"],[270,"6504 S Meridian Rd","dog"],[271,"6430 S Meridian Rd",""],[272,"6355 S Meridian Rd",""],[273,"180 W County Road 600 S","chickens"],[274,"564 W County Road 600 S","turn around - back in to gate"],[275,"5999 S Meridian Rd",""],[276,"5877 S Meridian Rd",""],[277,"5828 S Meridian Rd",""],[278,"5825 S Meridian Rd",""],[279,"5520 S Meridian Rd",""],[280,"21 W State Road 64",""],[281,"328 E State Road 64",""],[282,"414 E State Road 64",""],[283,"5664 S County Road 50 E","end of road - deliver and leave asap"],[284,"5572 S County Road 50 E",""],[285,"5534 S County Road 50 E",""],[286,"435 E State Road 64","geese!"],[287,"410 E State Road 64",""],[288,"400 E State Road 64",""],[289,"392 E State Road 64",""],[290,"341 E State Road 64",""],[291,"305 E State Road 64",""],[292,"243 E State Road 64",""],[293,"233 E State Road 64",""],[294,"275 E State Road 64",""],[295,"101 E State Road 64",""],[296,"29 E State Road 64","dog"],[297,"38 W State Road 64",""],[298,"37 W State Road 64",""],[299,"51 W State Road 64",""],[300,"80 W State Road 64",""],[301,"151 W State Road 64",""],[302,"176 W State Road 64",""],[303,"259 W State Road 64","not valid"],[304,"265 W State Road 64",""],[305,"747 W State Road 64",""],[306,"5450 S County Road 100 W",""],[307,"5376 S County Road 100 W",""],[308,"4960 S County Road 100 W",""],[309,"4741 S County Road 175 W","box in drive - turn around"],[310,"4953 S County Road 100 W",""],[311,"1105 W County Road 525 S",""],[312,"1344 W County Road 525 S","don't deliver"],[313,"1604 W County Road 525 S",""],[314,"1642 W County Road 525 S",""],[315,"1511 W County Road 525 S","turn around in driveway"],[316,"1593 W County Road 525 S","dog"],[317,"1637 W County Road 525 S",""],[318,"1423 W County Road 525 S",""],[319,"1252 W State Road 64",""],[320,"1280 W State Road 64",""],[321,"1358 W State Road 64",""],[322,"1359 W State Road 64",""],[323,"1518 W State Road 64",""],[324,"1548 W State Road 64",""],[325,"1619 W State Road 64",""],[326,"1843 W State Road 64",""],[327,"13363 E State Road 64",""],[328,"942 S 1275 E","porta potty close by"],[329,"12873 E 75 S",""],[330,"12915 E 75 S",""],[331,"12935 E 75 S",""],[332,"720 S 1300 E",""],[333,"718 S 1300 E",""],[334,"721 S 1300 E",""],[335,"671 S 1300 E",""],[336,"620 S 1300 E","turn around"],[337,"355 S 1300 E","near snake porta-potty"],[338,"12886 E 75 S",""],[339,"12794 E 75 S","packages under barn awning"],[340,"905 S 1275 E",""],[341,"12730 E 100 S",""],[342,"12729 E 100 S",""],[343,"12663 E 100 S",""],[344,"12604 E 100 S",""],[345,"12600 E 100 S",""],[346,"12599 E 100 S",""],[347,"12596 E 100 S",""],[348,"12558 E 100 S",""],[349,"12561 E 100 S",""],[350,"12531 E 100 S",""],[351,"12533 E 100 S",""],[352,"12532 E 100 S",""],[353,"12478 E 100 S",""],[354,"12422 E 100 S",""],[355,"12437 E 100 S",""],[356,"12406 E 100 S",""],[357,"12384 E 100 S",""],[358,"12385 E 100 S",""],[359,"12368 E 100 S",""],[360,"12341 E 100 S",""],[361,"12293 E 100 S",""],[362,"12269 E 100 S",""],[363,"12249 E 100 S","tan modular"],[364,"12245 E 100 S","down alley last on left"],[365,"228 E Cherry St","on corner - turn around"],[366,"982 S 1225 E","box in bush"],[367,"963 S 1225 E","brick house on left"],[368,"960 S 1225 E","right side - long drive"],[369,"922 S 1225 E",""],[370,"905 S 1225 E","packages go to porch - no mail box"],[371,"880 S 1225 E",""],[372,"856 S 1225 E",""],[373,"855 S 1225 E",""],[374,"802 S 1225 E",""],[375,"794 S 1225 E",""],[376,"640 S 1225 E",""],[377,"570 S 1225 E",""],[378,"547 S 1225 E",""],[379,"412 S 1225 E",""],[380,"400 S 1225 E",""],[381,"344 S 1225 E",""],[382,"309 S 1225 E","lg gray house on left"],[383,"315 S 1225 E",""],[384,"316 S 1225 E",""],[385,"272 S 1225 E",""],[386,"265 S 1225 E",""],[387,"248 S 1225 E",""],[388,"209 S 1225 E",""],[389,"211 S 1225 E",""],[390,"122 S 1225 E","Daffron"],[391,"108 S 1225 E",""],[392,"100 S 1275 E","vacant - forwarded"],[393,"4 S 1225 E",""],[394,"42 S 1225 E",""],[395,"22 S 1225 E",""],[396,"12257 E Base Rd",""],[397,"12252 E Base Rd","turn around - box in driveway"],[398,"66 N State Road 57",""],[399,"844 N State Road 57",""],[400,"988 N State Road 57",""],[401,"1114 N 1200 E","host sign - turn left"],[402,"1166 N 1200 E","after grey bins"],[403,"1258 N 1200 E",""],[404,"1320 N 1200 E",""],[405,"1338 N 1200 E","vacant"],[406,"1340 N 1200 E",""],[407,"1461 N 1200 E",""],[408,"12037 E 150 N",""],[409,"1387 N State Road 57","not 1338 - box is labeled"],[410,"1292 N State Road 57",""],[411,"1364 N State Road 57",""],[412,"1412 N State Road 57",""],[413,"1261 N State Road 57",""],[414,"1161 N State Road 57",""],[415,"1123 N State Road 57",""],[416,"1061 N State Road 57","greenhouse"],[417,"1047 N State Road 57",""],[418,"939 N State Road 57",""],[419,"349 N State Road 57",""],[420,"275 N State Road 57","no box"],[421,"1014 N Main Dr",""],[422,"910 N Main Dr",""],[423,"200 Center Dr",""],[424,"910 Highland Ave","PO box"],[425,"914 Highland Ave",""],[426,"915 Highland Ave",""],[427,"920 Highland Ave",""],[428,"919 Highland Ave",""],[429,"925 Highland Ave","right side of road"],[430,"922 Highland Ave","left side of road"],[431,"1014 Highland Ave",""],[432,"924 N Main Dr",""],[433,"918 N Main Dr",""],[434,"914 N Main Dr",""],[435,"830 N Main Dr",""],[436,"826 N Main Dr",""],[437,"814 N Main Dr",""],[438,"812 N Main Dr","don't pull in driveway"],[439,"820 N Main Dr",""],[440,"905 N Main St",""],[441,"831 N Main St",""],[442,"114 Center Dr",""],[443,"831 N Polk Dr",""],[444,"911 N Polk Dr",""],[445,"915 N Polk Dr",""],[446,"921 N Polk Dr",""],[447,"925 N Polk Dr",""],[448,"928 N Polk Dr","new build - no box"],[449,"924 N Polk Dr",""],[450,"914 N Polk Dr",""],[451,"115 Center Dr",""],[452,"823 N Polk Dr",""],[453,"827 N Polk Dr",""],[454,"821 N Polk Dr",""],[455,"826 N Polk Dr",""],[456,"824 N Polk Dr",""],[457,"815 N Polk Dr",""],[458,"822 N Polk Dr",""],[459,"811 N Polk Dr",""],[460,"820 N Polk Dr",""],[461,"818 N Polk Dr","last one on my route on this road"],[462,"815 N Main St",""],[463,"821 N Main St",""],[464,"823 N Main St",""],[465,"915 N Main St",""],[466,"917 N Main St","pull in - back out"],[467,"1010 N Main Dr","oak/black house"],[468,"411 North Dr",""],[469,"925 West Dr",""],[470,"1011 West Dr","packages on top of box if weather nice"],[471,"1014 West Dr","dog - greenhouse - small Pomeranian"],[472,"1010 West Dr","turn around"],[473,"924 West Dr",""],[474,"919 West Dr",""],[475,"918 West Dr",""],[476,"915 West Dr","vacant"],[477,"100 Maplewood Dr",""],[478,"915 Woodland Dr","mail forwarded"],[479,"910 West Dr",""],[480,"830 West Dr","mayor"],[481,"822 West Dr",""],[482,"818 West Dr",""],[483,"816 West Dr",""],[484,"814 West Dr","circle around"],[485,"811 West Dr",""],[486,"817 West Dr","leave open"],[487,"825 West Dr",""],[488,"827 West Dr",""],[489,"911 West Dr",""],[490,"833 West Dr",""],[491,"831 Highland Ave","corner"],[492,"830 Highland Ave",""],[493,"826 Highland Ave",""],[494,"827 Highland Ave",""],[495,"825 Highland Ave",""],[496,"822 Highland Ave",""],[497,"818 Highland Ave",""],[498,"815 Highland Ave",""],[499,"811 Highland Ave",""],[500,"810 Highland Ave",""],[501,"722 Highland Ave",""],[502,"723 Highland Ave",""],[503,"710 Highland Ave",""],[504,"622 Highland Ave",""],[505,"711 Highland Ave","tan/white corner house"],[506,"623 Highland Ave",""],[507,"122 W 1st St",""],[508,"123 W 1st St",""]];
+  stops = R.map(([seq,addr,note])=>({id:seq,seq,addr,note,status:'pending'}));
+}
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+// map.on('load') handles init after map is ready
+</script>
+</body>
+</html>
